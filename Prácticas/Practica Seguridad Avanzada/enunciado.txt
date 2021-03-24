@@ -1,0 +1,83 @@
+Esquema del ejercicio
+
+
+1. Conéctate a la base de datos como system.
+2. Ejecuta todos los pasos necesarios para crear un wallet de tipo FILE tal y como hemos visto en clase y en los videos para permitir implementar TDE (Transparent Data Encryption) sobre columnas de las tablas que seleccionemos.
+
+3. Todo el trabajo de tu proyecto SECRETARIA debería estar o estará en un espacio de tablas aparte. En el peor de los casos puede estar en el tablespace USERS. Asumiremos en adelante que usamos el esquema en el que estás desarrollando tu trabajo en grupo. Si no, no pasa nada, utiliza un esquema de ejemplo, el que quieras. Más adelante, se volcará lo aquí aprendido al esquema final de SECRETARIA.
+
+4. Usar una o varias tablas de tu trabajo en grupo susceptible de precisar que sus datos estén cifrados. Si no tuvieras nada creado en el momento de la realización de esta práctica, puedes crearte un par de tablas donde una de ellas fueran, por ejemplo, los alumnos. Y, por supuesto, introducir algunos datos de ejemplo.
+
+5. Parece obvio que, por ejemplo, en la tabla de alumnos habrá una serie de columnas que almacenan información sensible. Identifícalas y haz que estén siempre cifradas en disco. Para esta práctica, ASEGURATE QUE HAYA AL MENOS UNA COLUMNA DE TEXTO NO CIFRADA Y AL MENOS OTRA CIFRADA con objeto de poder hacer comprobaciones en los siguientes pasos.
+
+6. Una vez lo hayas hecho, comprueba que los cambios son efectivos mediante la consulta de la vista del diccionario de datos adecuada.
+
+7. Prueba a insertar varias filas en la tabla de alumnos (y en todas aquellas tablas que sea necesario). A continuación, puedes forzar a Oracle a que haga un flush de todos los buffers a disco mediante la instrucción:
+
+alter system flush buffer_cache;
+
+Comprueba a continuación el contenido del fichero que contiene el tablespace con estos datos. Ese fichero lo podremos encontrar en el directorio en el que hayamos creado el tablespace en el que se encuentra la tabla que estamos utilizando. Si estamos utilizando el tablespace users, por ejemplo, el fichero de tablespace se encuentra en  c:\Users\app\alumnos\oradata\ORCL.
+
+No es necesario conocer el formato de dicho fichero. Simplemente tener en cuenta que los datos no cifrados aparecerán en claro.  Y podemos hacer un buscar y los encontraríamos. Pero, ¿y si hacemos lo mismo con los que hemos decidido que se almacenen cifrados?
+
+La manera más cómoda es utilizar una herramienta que extraiga los strings legibles. E.g.: https://docs.microsoft.com/en-us/sysinternals/downloads/strings
+
+Si el fichero no es muy grande también se puede utilizar un editor (e.g. notepad) de texto para abrirlo y realizar búsquedas. Responde a las siguientes preguntas:
+
+- ¿Se pueden apreciar en el fichero los datos escritos? ¿Por qué?
+
+8. Vamos ahora a aplicar políticas de autorización más concretas mediante VPD. 
+
+Supongamos que vamos a permitir a los alumnos acceder a la BD de Secretaría y consultar/modificar sus datos. Si un alumno accede, sólo tendrá disponibles sus datos. Para ello, vamos a asumir que una de las columnas de la tabla alumno almacena su usuario de conexión a la BD (añade esta columna a la tabla si no la tiene ya). En el ejemplo a continuación asumimos que esta columna se denomina user_name.
+
+Para ello, necesitaremos primero una función que forme los predicados de la cláusula WHERE. La crearemos en el esquema (con copiar y pegar, por ejemplo) en el que se encuentran las tablas:
+create or replace function sec_function(p_schema varchar2, p_obj varchar2) Return varchar2 is
+   usuario VARCHAR2(100);
+Begin
+    usuario := SYS_CONTEXT('userenv', 'SESSION_USER');
+    return 'UPPER(user_name) = ''' || usuario || '''';
+End;
+ /
+ -- userenv = El contexto de aplicación
+ -- p_obj es el nombre de la tabla o vista al cual se le aplicará la política
+ -- p_schema es el schema en el que se encuentra dicha tabla o vista.
+
+
+9. Crearemos un usuario (cuyo nombre debe estar previamente presente en el campo user_name de alguna fila) de forma que podamos probar la política. Comprobaremos, que ese usuario, al conectarse, puede ver todos los datos de la tabla ALUMNOS.
+
+Añadiremos la política a la tabla ALUMNOS (desde un usuario con el role de DBA).  Y después comprobaremos que ocurre después de añadir la política. Una aclaración, al añadir una política, ésta se encuentra activa por defecto.
+
+Si en algún momento necesitas desactivar la política puedes usar:
+begin
+ DBMS_RLS.ENABLE_POLICY (        object_schema=>'el_nombre_del_esquema_en_el_que_está_la_tabla',    object_name=>'el_nombre_de_tu_tabla',
+policy_name=>'nombre_politica', enable=>false);
+end;
+
+
+10.  Proporcionemos los permisos necesarios a ese nuevo usuario que acabamos de crear para las pruebas para que, por lo menos, pueda consultar y actualizar datos en la tabla.
+
+11. ¿Qué ocurre cuando nos conectamos desde un usuario existente en la tabla ALUMNOS y realizamos un select de todo?
+
+12. ¿Y si realizamos un update?
+
+13. ¿Podemos hacer update de cualquier columna? ¿Tiene sentido que se pueda?  Prueba a hacer un update de la columna user_name. ¿Qué ocurre? ¿Es el comportamiento esperado por parte del usuario?
+
+14. En caso de haber respondido negativamente a la última pregunta anterior, ¿Como podemos evitarlo? (tip: revisa la documentación de dbms_rls.add_policy que utilizaste antes para ver si hay una opción que nos permita hacer lo que queremos, si es que creemos que debemos hacer algo).
+
+Prúebalo (tip: tendrás que hacer un drop de la política antes de volver a crearla). Para ello utiliza: 
+
+begin
+
+dbms_rls.drop_policy (
+
+  object_schema=>'tu_esquema',
+
+  object_name=>'tu_tabla',
+
+  policy_name=>'el_nombre_de_la_politica' );
+
+end;
+
+15. Utilizando la misma función anterior, también podemos aplicar políticas sobre columnas, en lugar de sobre vistas o tablas enteras. Continuando con nuestro ejemplo de los alumnos, imaginemos que queremos permitir a estos consultar todos los datos de la tabla excepto cuando también se solicita una columna determinada (ej. tfno_contacto), en cuyo caso queremos que se muestren sólo los datos del usuario. Investiga en la documentación la función que ya hemos utilizado para añadir una política nueva (dbms_rls.add_policy). ¿Qué cambios deberíamos hacer para lograr nuestro objetivo? Tip: Desactiva previamente la política anterior para no tener conflictos en los resultados. 
+
+17. Qué desventajas pueden llegar a tener este tipo de control de acceso más específico? Si no encuentras la respuesta discútelo con el profesor.
